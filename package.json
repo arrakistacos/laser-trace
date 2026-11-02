@@ -1,0 +1,1 @@
+{"type":"module","name":"laser-trace","private":true,"scripts":{"test":"node test/run.mjs"}}

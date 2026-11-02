@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Laser Trace</title>
+<meta name="description" content="Turn photos of drawings into LightBurn-ready SVGs for laser cutting and engraving.">
+<meta name="theme-color" content="#141311">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M5 24 C9 10 14 22 18 12 S26 8 27 6' fill='none' stroke='%23d9a35b' stroke-width='3' stroke-linecap='round'/><circle cx='27' cy='6' r='3' fill='%23ff4a2e'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><path d="M5 24 C9 10 14 22 18 12 S26 8 27 6" fill="none" stroke="var(--ply)" stroke-width="3" stroke-linecap="round"/><circle cx="27" cy="6" r="3" fill="var(--accent)"/></svg>
+    <span>LASER<b>TRACE</b></span>
+  </div>
+  <div class="file" id="fileName">no image</div>
+  <div class="stats" id="stats"></div>
+  <div class="busy" id="busy" hidden>tracing…</div>
+  <div class="actions">
+    <label class="btn" title="Open a photo or image"><input type="file" id="fileInputTop" accept="image/*" hidden>Open</label>
+    <button class="btn primary" id="btnExport" title="Download LightBurn-ready SVG">Export .svg</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage" id="stage">
+    <canvas id="view"></canvas>
+    <div class="toolbar top">
+      <div class="seg" id="viewSeg" title="What to show">
+        <button data-view="photo">Photo</button><button data-view="mask">Mask</button><button data-view="vector" class="on">Vector</button><button data-view="burn">Burn</button>
+      </div>
+      <div class="seg" id="toolSeg" title="Tool">
+        <button data-tool="pan" class="on" title="Pan / move text">✋</button><button data-tool="erase" title="Erase marks (cleanup brush)">Erase</button><button data-tool="draw" title="Add ink (cleanup brush)">Draw</button>
+      </div>
+      <button class="btn icon" id="btnFit" title="Fit to view">⤢</button>
+    </div>
+    <div class="toolbar brushbar" id="brushBar" hidden>
+      <label>Brush <input type="range" id="brushSize" min="0.3" max="8" step="0.1" value="1.5"></label>
+      <button class="btn" id="btnUndoStroke">Undo</button>
+      <button class="btn" id="btnClearEdits">Clear edits</button>
+    </div>
+    <div class="toolbar cropbar" id="cropBar" hidden>
+      <span class="muted">Drag the corners onto the paper's corners</span>
+      <button class="btn" id="cropReset">Full image</button>
+      <button class="btn" id="cropCancel">Cancel</button>
+      <button class="btn primary" id="cropApply">Apply</button>
+    </div>
+    <label class="empty" id="empty">
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <strong>Drop a photo of your drawing</strong>
+      <span>or tap to take a photo / choose a file · paste also works</span>
+      <span class="samples">Try a sample: <button class="chip" data-sample="sketch" type="button">Pen sketch</button> <button class="chip" data-sample="colour" type="button">Colour drawing</button></span>
+    </label>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <aside class="panel" id="panel">
+    <section>
+      <h2>Image</h2>
+      <div class="row">
+        <label class="btn grow"><input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>📷 Take photo</label>
+        <label class="btn grow"><input type="file" id="fileInput2" accept="image/*" hidden>Choose file</label>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnCrop" title="Crop and straighten (perspective)">Crop &amp; straighten</button>
+        <button class="btn icon" data-rot="-1" title="Rotate left">⟲</button>
+        <button class="btn icon" data-rot="1" title="Rotate right">⟳</button>
+        <button class="btn icon" id="btnFlip" title="Mirror">⇋</button>
+      </div>
+      <div class="field">
+        <label for="res">Working resolution</label>
+        <select id="res"><option value="1000">Fast · 1000 px</option><option value="1600" selected>Normal · 1600 px</option><option value="2400">Fine · 2400 px</option></select>
+      </div>
+      <div class="row presets">
+        <span class="muted">Presets</span>
+        <button class="chip" data-preset="pen">Pen drawing</button>
+        <button class="chip" data-preset="pencil">Pencil sketch</button>
+        <button class="chip" data-preset="single">Single line</button>
+        <button class="chip" data-preset="solid">Solid shapes</button>
+        <button class="chip" data-preset="stencil">Stencil</button>
+        <button class="chip" data-preset="colour">Colours</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Size</h2>
+      <div class="field two">
+        <label>Output size (aspect locked)</label>
+        <div class="inp"><span>W</span><input type="number" id="widthMm" value="100" min="1" step="1"><span>mm</span></div>
+        <div class="inp"><span>H</span><input type="number" id="heightMm" value="" min="1" step="1"><span>mm</span></div>
+      </div>
+      <div class="readout" id="sizeReadout">—</div>
+    </section>
+
+    <section>
+      <h2>Mode</h2>
+      <div class="seg wide" id="modeSeg">
+        <button data-mode="bw" class="on">Line art (black &amp; white)</button><button data-mode="color">Colours → layers</button>
+      </div>
+    </section>
+
+    <section data-for="bw">
+      <h2>Clean up photo</h2>
+      <div class="slider"><label for="flatten">Even out lighting</label><input type="range" id="flatten" min="0" max="100" step="1"><output></output></div>
+      <div class="slider"><label for="brightness">Brightness</label><input type="range" id="brightness" min="-100" max="100" step="1"><output></output></div>
+      <div class="slider"><label for="contrast">Contrast</label><input type="range" id="contrast" min="-100" max="100" step="1"><output></output></div>
+      <div class="slider"><label for="blur">Soften noise</label><input type="range" id="blur" min="0" max="6" step="0.25"><output></output></div>
+      <div class="field">
+        <label>Threshold</label>
+        <div class="seg" id="threshSeg"><button data-thresh="auto">Auto</button><button data-thresh="manual">Manual</button><button data-thresh="adaptive">Local</button></div>
+      </div>
+      <div class="slider" id="threshRow"><label for="threshold">Ink cutoff</label><input type="range" id="threshold" min="1" max="254" step="1"><output></output></div>
+      <div class="slider" id="adaptRow"><label for="adaptiveOffset">Sensitivity</label><input type="range" id="adaptiveOffset" min="1" max="60" step="1"><output></output></div>
+      <label class="check"><input type="checkbox" id="invert"> Invert (light drawing on dark)</label>
+    </section>
+
+    <section data-for="color">
+      <h2>Colours</h2>
+      <div class="slider"><label for="colors">Number of colours</label><input type="range" id="colors" min="2" max="8" step="1"><output></output></div>
+      <div class="slider"><label for="colorBlur">Merge noise</label><input type="range" id="colorBlur" min="0" max="6" step="0.25"><output></output></div>
+      <p class="hint">Each colour becomes its own LightBurn layer. The paper colour is switched off automatically.</p>
+    </section>
+
+    <section>
+      <h2>Trace</h2>
+      <div class="seg wide" id="traceSeg" title="How lines become vectors">
+        <button data-trace="outline" class="on">Outline shapes</button><button data-trace="centerline">Single line (centerline)</button>
+      </div>
+      <p class="hint" id="traceHint"></p>
+      <div class="slider"><label for="detail" title="Higher keeps small marks and fine wiggles">Detail</label><input type="range" id="detail" min="0" max="100" step="1"><output></output></div>
+      <div class="slider"><label for="smooth" title="0 = straight segments, higher = smoother curves">Smoothness</label><input type="range" id="smooth" min="0" max="100" step="1"><output></output></div>
+      <div class="slider"><label for="closeGaps" title="Join small breaks in pencil lines">Close gaps</label><input type="range" id="closeGaps" min="0" max="12" step="0.5"><output></output></div>
+      <div class="slider"><label for="thicken" title="Make lines bolder (+) or thinner (−)">Thicken / thin</label><input type="range" id="thicken" min="-6" max="10" step="0.5"><output></output></div>
+      <label class="check"><input type="checkbox" id="fillHoles"> Fill enclosed areas (solid shapes)</label>
+    </section>
+
+    <section>
+      <h2>Layers <span class="sub">→ LightBurn colours</span></h2>
+      <div id="layerList" class="layers"></div>
+      <p class="hint"><b>Fill</b> = engraved solid. <b>Line</b> = traced outline (hollow, or a cut). Set each colour's mode in LightBurn to match.</p>
+    </section>
+
+    <section data-for="bw">
+      <h2>Stencil</h2>
+      <label class="check"><input type="checkbox" id="stencil"> Make a stencil (cut the drawing out of a sheet)</label>
+      <div class="sub-fields" id="stencilFields">
+        <div class="field"><label for="bridgeMm">Bridge width</label><div class="inp"><input type="number" id="bridgeMm" min="0.3" step="0.1"><span>mm</span></div></div>
+        <div class="field"><label>Bridges run</label><div class="seg" id="bridgeSeg"><button data-bdir="v">Up/down</button><button data-bdir="h">Sideways</button></div></div>
+        <div class="field"><label for="stencilMarginMm">Sheet margin</label><div class="inp"><input type="number" id="stencilMarginMm" min="0" step="1"><span>mm</span></div></div>
+        <p class="hint">Islands (the middle of an O, an eye…) get bridges so they don't fall out.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Cut border</h2>
+      <div class="seg wide" id="borderSeg">
+        <button data-border="none">None</button><button data-border="contour">Contour</button><button data-border="rect">Rect</button><button data-border="round">Rounded</button><button data-border="circle">Circle</button>
+      </div>
+      <div class="sub-fields" id="borderFields">
+        <div class="field"><label for="borderMm">Offset</label><div class="inp"><input type="number" id="borderMm" min="0" step="0.5"><span>mm</span></div></div>
+        <label class="check" id="joinRow"><input type="checkbox" id="borderJoin"> Join into one piece</label>
+        <div class="field" id="radiusRow"><label for="borderRadiusMm">Corner radius</label><div class="inp"><input type="number" id="borderRadiusMm" min="0" step="0.5"><span>mm</span></div></div>
+        <p class="hint">Cuts the design out as a sticker, coaster or keychain shape.</p>
+      </div>
+      <div class="field"><label>Cut colour</label><div id="cutColor"></div></div>
+    </section>
+
+    <section>
+      <h2>Text</h2>
+      <button class="btn grow" id="btnAddText">+ Add text</button>
+      <div id="textList" class="textlist"></div>
+      <div id="textEditor" class="text-editor" hidden>
+        <textarea id="tText" rows="2" spellcheck="false"></textarea>
+        <div class="field"><label for="tFont">Font</label><select id="tFont"></select></div>
+        <label class="btn small"><input type="file" id="fontInput" accept=".ttf,.otf,.woff,font/ttf,font/otf,font/woff" hidden>Use my own font…</label>
+        <div class="field two">
+          <label>Letter height · spacing</label>
+          <div class="inp"><input type="number" id="tHeight" min="1" step="0.5"><span>mm</span></div>
+          <div class="inp"><input type="number" id="tSpacing" step="1"><span>%</span></div>
+        </div>
+        <div class="field two">
+          <label>Rotation · line height</label>
+          <div class="inp"><input type="number" id="tRotate" step="1"><span>°</span></div>
+          <div class="inp"><input type="number" id="tLine" min="0.6" step="0.05"><span>×</span></div>
+        </div>
+        <div class="field"><label>Align</label><div class="seg" id="alignSeg"><button data-align="left">Left</button><button data-align="center">Centre</button><button data-align="right">Right</button></div></div>
+        <div class="field"><label>Layer</label><div class="inline"><span id="tColor"></span><div class="seg" id="tModeSeg"><button data-tmode="fill">Fill</button><button data-tmode="line">Line</button></div></div></div>
+        <label class="check"><input type="checkbox" id="tWeld"> Weld overlapping letters</label>
+        <div class="row"><button class="btn" id="btnTextCenter">Centre on design</button><button class="btn danger" id="btnTextDelete">Delete</button></div>
+        <p class="hint">Drag text on the canvas to move it.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>LightBurn</h2>
+      <p class="hint">Import the SVG (File → Import). Every colour lands on its own layer: set Fill layers to <b>Fill</b> (engrave) and Line layers to <b>Line</b> (score or cut). Run engraving layers before the cut layer, and turn on <i>Cut inner shapes first</i>.</p>
+      <button class="btn" id="btnResetAll">Reset all settings</button>
+    </section>
+  </aside>
+</main>
+
+<div class="palette-pop" id="palettePop" hidden></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
